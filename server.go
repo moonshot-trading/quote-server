@@ -69,7 +69,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		// } else {
 		//  No cached quote, go get a new quote
 		fmt.Println("not in cache", err)
-		conn, err := net.Dial("tcp", "docker.for.mac.localhost:44415")
+		conn, err := net.Dial("tcp", "docker.for.mac.localhost:44415") // prolly change this address
 		if err != nil {
 			fmt.Println("Connection error", err)
 			return Quote{}, err
@@ -77,7 +77,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 
 		defer conn.Close()
 
-		commandString := userId + "," + stockSymbol
+		commandString := stockSymbol + "," + userId
 
 		conn.Write([]byte(commandString + "\n"))
 		buff := make([]byte, 1024)
@@ -89,7 +89,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		thisQuote := Quote{}
 
 		thisQuote.Price, _ = strconv.ParseFloat(quoteStringComponents[0], 64)
-		thisQuote.StockSymbol = quoteStringComponents[2]
+		thisQuote.StockSymbol = quoteStringComponents[1]
 		thisQuote.UserId = userId
 		thisQuote.Timestamp, _ = strconv.ParseInt(quoteStringComponents[3], 10, 64)
 		thisQuote.CryptoKey = quoteStringComponents[4]
