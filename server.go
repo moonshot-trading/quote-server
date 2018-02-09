@@ -24,6 +24,7 @@ type Quote struct {
 	UserId      string
 	Timestamp   int64
 	CryptoKey   string
+	Cached      bool
 }
 
 func failWithStatusCode(err error, msg string, w http.ResponseWriter, statusCode int) {
@@ -53,6 +54,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 			return Quote{}, err
 		} else {
 			fmt.Println("cache GET", q)
+			q.Cached = true
 			return q, err
 		}
 	} else {
@@ -87,10 +89,11 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		thisQuote := Quote{}
 
 		thisQuote.Price, _ = strconv.ParseFloat(quoteStringComponents[0], 64)
-		thisQuote.StockSymbol = quoteStringComponents[1]
+		thisQuote.StockSymbol = quoteStringComponents[2]
 		thisQuote.UserId = userId
 		thisQuote.Timestamp, _ = strconv.ParseInt(quoteStringComponents[3], 10, 64)
 		thisQuote.CryptoKey = quoteStringComponents[4]
+		thisQuote.Cached = false
 
 		currentQuoteJSON, err := json.Marshal(thisQuote)
 
