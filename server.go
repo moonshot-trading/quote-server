@@ -10,11 +10,25 @@ import (
 	"strings"
 	"time"
 
+	"os"
+
 	"github.com/garyburd/redigo/redis"
 )
 
 //  Globals
+const (
+	QUOTE_SERVER_ADDR = "192.168.1.152"
+	QUOTE_SERVER_PORT = "4442"
+)
+
 var (
+	config = quoteConfig{func() string {
+		if runningInDocker() {
+			return "redis"
+		} else {
+			return "localhost"
+		}
+	}(), QUOTE_SERVER_ADDR + QUOTE_SERVER_PORT}
 	c = loadDB()
 )
 
@@ -25,6 +39,19 @@ type Quote struct {
 	Timestamp   int64
 	CryptoKey   string
 	Cached      bool
+}
+
+type quoteConfig struct {
+	redis       string
+	quoteServer string
+}
+
+func runningInDocker() bool {
+	_, err := os.Stat("/.dockerenv")
+	if err == nil {
+		return true
+	}
+	return false
 }
 
 func failWithStatusCode(err error, msg string, w http.ResponseWriter, statusCode int) {
@@ -69,7 +96,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		// } else {
 		//  No cached quote, go get a new quote
 		fmt.Println("not in cache", err)
-		conn, err := net.Dial("tcp", "docker.for.mac.localhost:44415")
+		conn, err := net.Dial("tcp", config.quoteServer)
 		if err != nil {
 			fmt.Println("Connection error", err)
 			return Quote{}, err
@@ -83,6 +110,8 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		buff := make([]byte, 1024)
 		length, _ := conn.Read(buff)
 		quoteString := string(buff[:length])
+
+		conn.Close()
 
 		// Parse Quote
 		quoteStringComponents := strings.Split(quoteString, ",")
@@ -161,10 +190,9 @@ func loadDB() redis.Conn {
 	for i := 0; i < 5; i++ {
 		time.Sleep(time.Duration(i) * time.Second)
 
-		c, rederr = redis.Dial("tcp", "redis:6379")
-		fmt.Println(rederr, "AHAHAHAHA")
+		c, rederr = redis.Dial("tcp", config.redis+":6379")
 		if rederr != nil {
-			fmt.Println("Could not connect:", rederr)
+			fmt.Println("Could not connect to Redis:", rederr)
 		}
 
 		if rederr == nil {
@@ -176,7 +204,7 @@ func loadDB() redis.Conn {
 	if rederr != nil {
 		failGracefully(rederr, "Failed to open Redis")
 	} else {
-		fmt.Println("Connected to DB")
+		fmt.Println("Connected to Redis")
 	}
 
 	return c
