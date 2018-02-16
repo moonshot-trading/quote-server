@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"os"
@@ -17,11 +18,15 @@ import (
 
 //  Globals
 const (
-	QUOTE_SERVER_ADDR = "192.168.1.152"
-	QUOTE_SERVER_PORT = "4442"
+	//QUOTE_SERVER_ADDR = "192.168.1.152:"
+	//QUOTE_SERVER_PORT = "4442"
+	QUOTE_SERVER_ADDR = "docker.for.mac.host.internal"
+	QUOTE_SERVER_PORT = ":44415"
+	//QUOTE_SERVER_PORT = "4442"
 )
 
 var (
+	Pool   *redis.Pool
 	config = quoteConfig{func() string {
 		if runningInDocker() {
 			return "redis"
@@ -29,11 +34,10 @@ var (
 			return "localhost"
 		}
 	}(), QUOTE_SERVER_ADDR + QUOTE_SERVER_PORT}
-	c = loadDB()
 )
 
 type Quote struct {
-	Price       float64
+	Price       string
 	StockSymbol string
 	UserId      string
 	Timestamp   int64
@@ -69,6 +73,10 @@ func failGracefully(err error, msg string) {
 func getQuote(userId string, stockSymbol string) (Quote, error) {
 
 	q := Quote{}
+
+	c := Pool.Get()
+	defer c.Close()
+
 	if c == nil {
 		fmt.Println("lol no db haha")
 	}
@@ -117,7 +125,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		quoteStringComponents := strings.Split(quoteString, ",")
 		thisQuote := Quote{}
 
-		thisQuote.Price, _ = strconv.ParseFloat(quoteStringComponents[0], 64)
+		thisQuote.Price = quoteStringComponents[0]
 		thisQuote.StockSymbol = quoteStringComponents[1]
 		thisQuote.UserId = userId
 		thisQuote.Timestamp, _ = strconv.ParseInt(quoteStringComponents[3], 10, 64)
@@ -184,34 +192,76 @@ func quoteHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(currentQuoteJSON)
 }
 
-func loadDB() redis.Conn {
-	var c redis.Conn
-	var rederr error
-	for i := 0; i < 5; i++ {
-		time.Sleep(time.Duration(i) * time.Second)
+// func loadDB() redis.Conn {
+// 	var c redis.Conn
+// 	var rederr error
+// 	for i := 0; i < 5; i++ {
+// 		time.Sleep(time.Duration(i) * time.Second)
 
-		c, rederr = redis.Dial("tcp", config.redis+":6379")
-		if rederr != nil {
-			fmt.Println("Could not connect to Redis:", rederr)
-		}
+// 		c, rederr = redis.Dial("tcp", config.redis+":6379")
+// 		if rederr != nil {
+// 			fmt.Println("Could not connect to Redis:", rederr)
+// 		}
 
-		if rederr == nil {
-			break
-		}
-		log.Println(rederr)
+// 		if rederr == nil {
+// 			break
+// 		}
+// 		log.Println(rederr)
+// 	}
+
+// 	if rederr != nil {
+// 		failGracefully(rederr, "Failed to open Redis")
+// 	} else {
+// 		fmt.Println("Connected to Redis")
+// 	}
+
+// 	return c
+// }
+
+func initDB() {
+	redisHost := config.redis + ":6379"
+	Pool = newPool(redisHost)
+	cleanupHook()
+}
+
+func cleanupHook() {
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, syscall.SIGTERM)
+	signal.Notify(c, syscall.SIGKILL)
+	go func() {
+		<-c
+		Pool.Close()
+		os.Exit(0)
+	}()
+}
+
+func newPool(server string) *redis.Pool {
+
+	return &redis.Pool{
+
+		MaxIdle:     100,
+		IdleTimeout: 5 * time.Second,
+
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", server)
+			if err != nil {
+				return nil, err
+			}
+			return c, err
+		},
+
+		// TestOnBorrow: func(c redis.Conn, t time.Time) error {
+		// 	_, err := c.Do("PING")
+		// 	return err
+		// },
 	}
-
-	if rederr != nil {
-		failGracefully(rederr, "Failed to open Redis")
-	} else {
-		fmt.Println("Connected to Redis")
-	}
-
-	return c
 }
 
 func main() {
 
+	initDB()
 	port := ":44418"
 	fmt.Printf("Listening on port %s\n", port)
 	http.HandleFunc("/", rootHandler)
