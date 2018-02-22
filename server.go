@@ -18,10 +18,10 @@ import (
 
 //  Globals
 const (
-	//QUOTE_SERVER_ADDR = "192.168.1.152:"
-	//QUOTE_SERVER_PORT = "4442"
-	QUOTE_SERVER_ADDR = "docker.for.mac.host.internal"
-	QUOTE_SERVER_PORT = ":44415"
+	QUOTE_SERVER_ADDR = "192.168.1.152:"
+	QUOTE_SERVER_PORT = "4442"
+	//QUOTE_SERVER_ADDR = "docker.for.mac.host.internal"
+	//QUOTE_SERVER_PORT = ":44415"
 	//QUOTE_SERVER_PORT = "4442"
 )
 
@@ -88,7 +88,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		if scanerr := json.Unmarshal(b, &q); scanerr != nil {
 			return Quote{}, err
 		} else {
-			fmt.Println("cache GET", q)
+			//fmt.Println("cache GET", q)
 			q.Cached = true
 			return q, err
 		}
@@ -103,7 +103,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		// 	return q, nil
 		// } else {
 		//  No cached quote, go get a new quote
-		fmt.Println("not in cache", err)
+		//fmt.Println("not in cache", err)
 		conn, err := net.Dial("tcp", config.quoteServer)
 		if err != nil {
 			fmt.Println("Connection error", err)
@@ -119,8 +119,9 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		length, _ := conn.Read(buff)
 		quoteString := string(buff[:length])
 
-		conn.Close()
-
+		if quoteString == "" {
+			failGracefully(err, "quote was empty")
+		}
 		// Parse Quote
 		quoteStringComponents := strings.Split(quoteString, ",")
 		thisQuote := Quote{}
@@ -136,7 +137,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 
 		if err == nil {
 			//successful legacy get
-			fmt.Println("LEGACY GET", string(currentQuoteJSON))
+			//fmt.Println("LEGACY GET", string(currentQuoteJSON))
 			c.Send("MULTI")
 			c.Send("SET", stockSymbol, string(currentQuoteJSON))
 			c.Send("EXPIRE", stockSymbol, "60")
@@ -156,6 +157,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		//  Return the quote
 		return thisQuote, nil
 	}
+
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +190,7 @@ func quoteHandler(w http.ResponseWriter, r *http.Request) {
 	//  Return quote
 	currentQuoteJSON, err := json.Marshal(currentQuote)
 
-	w.WriteHeader(http.StatusOK)
+	//w.WriteHeader(http.StatusOK)
 	w.Write(currentQuoteJSON)
 }
 
@@ -241,8 +243,9 @@ func newPool(server string) *redis.Pool {
 
 	return &redis.Pool{
 
-		MaxIdle:     100,
-		IdleTimeout: 5 * time.Second,
+		MaxIdle:     80,
+		MaxActive:   10000,
+		IdleTimeout: 30 * time.Second,
 
 		Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial("tcp", server)
