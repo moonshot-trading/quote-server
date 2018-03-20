@@ -17,17 +17,11 @@ import (
 )
 
 //  Globals
-const (
-	QUOTE_SERVER_ADDR = "192.168.1.152:"
-	QUOTE_SERVER_PORT = "4442"
-	//QUOTE_SERVER_ADDR = "docker.for.mac.host.internal"
-	//QUOTE_SERVER_PORT = ":44415"
-	//QUOTE_SERVER_PORT = "4442"
-)
-
 var (
-	Pool   *redis.Pool
-	config = quoteConfig{func() string {
+	Pool              *redis.Pool
+	QUOTE_SERVER_ADDR = os.Getenv("LEGACY_QUOTE_SERVER_ADDR")
+	QUOTE_SERVER_PORT = os.Getenv("LEGACY_QUOTE_SERVER_PORT")
+	config            = quoteConfig{func() string {
 		if runningInDocker() {
 			return "redis"
 		} else {
@@ -106,6 +100,7 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		//fmt.Println("not in cache", err)
 		conn, err := net.Dial("tcp", config.quoteServer)
 		if err != nil {
+			fmt.Println("Couldnt connect to: ", config.quoteServer)
 			fmt.Println("Connection error", err)
 			return Quote{}, err
 		}
