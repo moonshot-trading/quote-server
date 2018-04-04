@@ -18,10 +18,11 @@ import (
 
 //  Globals
 var (
-	Pool              *redis.Pool
-	QUOTE_SERVER_ADDR = os.Getenv("LEGACY_QUOTE_SERVER_ADDR")
-	QUOTE_SERVER_PORT = os.Getenv("LEGACY_QUOTE_SERVER_PORT")
-	config            = quoteConfig{func() string {
+	Pool               *redis.Pool
+	QUOTE_SERVER_ADDR  = os.Getenv("LEGACY_QUOTE_SERVER_ADDR")
+	QUOTE_SERVER_PORT  = os.Getenv("LEGACY_QUOTE_SERVER_PORT")
+	TIMEOUT_ALLOWED, _ = strconv.Atoi(os.Getenv("TIMEOUT"))
+	config             = quoteConfig{func() string {
 		if runningInDocker() {
 			return "redis"
 		} else {
@@ -64,6 +65,50 @@ func failGracefully(err error, msg string) {
 	}
 }
 
+func makeConnection(userId string, stockSymbol string) (string, error) {
+
+	quoteString := ""
+	for true {
+
+		conn, err := net.Dial("tcp", config.quoteServer)
+		if err != nil {
+			fmt.Println("Couldnt connect to: ", config.quoteServer)
+			fmt.Println("Connection error", err)
+			return "", err
+		}
+
+		commandString := stockSymbol + "," + userId
+
+		conn.Write([]byte(commandString + "\n"))
+		buff := make([]byte, 1024)
+		conn.SetReadDeadline(time.Now().Add(time.Duration(TIMEOUT_ALLOWED) * time.Millisecond))
+		length, err := conn.Read(buff)
+		quoteString = string(buff[:length])
+
+		if e, ok := err.(net.Error); ok && e.Timeout() {
+			// This was a timeout
+			fmt.Println("Timeout")
+			conn.Close()
+			continue
+
+		} else if err != nil {
+			// This was an error, but not a timeout
+			failGracefully(err, "Other connection error")
+			conn.Close()
+			return quoteString, err
+		}
+
+		if quoteString == "" {
+			failGracefully(err, "quote was empty")
+			conn.Close()
+			return "", err
+		}
+
+		return quoteString, nil
+	}
+	return quoteString, nil //will never get here
+}
+
 func getQuote(userId string, stockSymbol string) (Quote, error) {
 
 	q := Quote{}
@@ -98,26 +143,13 @@ func getQuote(userId string, stockSymbol string) (Quote, error) {
 		// } else {
 		//  No cached quote, go get a new quote
 		//fmt.Println("not in cache", err)
-		conn, err := net.Dial("tcp", config.quoteServer)
-		if err != nil {
-			fmt.Println("Couldnt connect to: ", config.quoteServer)
-			fmt.Println("Connection error", err)
+
+		// Parse Quote
+		quoteString, err := makeConnection(userId, stockSymbol)
+		if quoteString == "" || err != nil {
 			return Quote{}, err
 		}
 
-		defer conn.Close()
-
-		commandString := stockSymbol + "," + userId
-
-		conn.Write([]byte(commandString + "\n"))
-		buff := make([]byte, 1024)
-		length, _ := conn.Read(buff)
-		quoteString := string(buff[:length])
-
-		if quoteString == "" {
-			failGracefully(err, "quote was empty")
-		}
-		// Parse Quote
 		quoteStringComponents := strings.Split(quoteString, ",")
 		thisQuote := Quote{}
 
